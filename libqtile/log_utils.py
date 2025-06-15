@@ -85,8 +85,10 @@ def get_default_log() -> Path:
         data_directory = os.path.expanduser("~/.local/share")
 
     qtile_directory = Path(data_directory) / "qtile"
-    if not qtile_directory.exists():
-        qtile_directory.mkdir(parents=True)
+    # if qtile_directory.exists() and not qtile_directory.is_dir():
+    #     # Clean up the invalid file/symlink
+    #     qtile_directory.unlink()
+    qtile_directory.mkdir(parents=True, exist_ok=True)
 
     return qtile_directory / "qtile.log"
 
