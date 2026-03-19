@@ -51,21 +51,6 @@ class Core(base.Core):
     def display_name(self) -> str:
         return "macOS"
 
-    def set_qtile(self, qtile: Qtile) -> None:
-        from libqtile.backend.macos.inputs import InputManager
-
-        self.qtile = qtile
-        if self.input_manager is None:
-            self.input_manager = InputManager(qtile, self)
-        # Start polling CFRunLoop for AX notifications and EventTap
-        self._running = True
-        self._poll_handle = self.qtile.call_later(0.01, self._poll_cf)
-        # The shutdown hook fires before graceful_shutdown() iterates over
-        # managed windows and calls win.kill().  Setting the flag here lets
-        # Window.kill() skip mac_window_kill so qtile's exit does not close
-        # users' native applications.
-        hook.subscribe.shutdown(self._on_shutdown)
-
     def _on_shutdown(self) -> None:
         self._shutting_down = True
 
@@ -178,6 +163,21 @@ class Core(base.Core):
         return mask
 
     def setup_listener(self) -> None:
+        # setup_listener is called by the manager after core.qtile is assigned.
+        # Initialise the input manager, CFRunLoop polling, and shutdown hook here
+        # since qtile never calls set_qtile() — it sets the attribute directly.
+        from libqtile.backend.macos.inputs import InputManager
+
+        if self.input_manager is None:
+            self.input_manager = InputManager(self.qtile, self)
+        self._running = True
+        self._poll_handle = self.qtile.call_later(0.01, self._poll_cf)
+        # The shutdown hook fires before graceful_shutdown() iterates over
+        # managed windows and calls win.kill().  Setting the flag here lets
+        # Window.kill() skip mac_window_kill so qtile's exit does not close
+        # users' native applications.
+        hook.subscribe.shutdown(self._on_shutdown)
+
         # TODO(0040): Register NSApplicationDidChangeScreenParametersNotification
         # (or CGDisplayRegisterReconfigurationCallback) here to handle monitor
         # hotplug events and call self.qtile.reconfigure_screens() accordingly.
