@@ -174,12 +174,9 @@ class Core(base.Core):
 
     def setup_listener(self) -> None:
         # setup_listener is called by the manager after core.qtile is assigned.
-        # Initialise the input manager, CFRunLoop polling, and shutdown hook here
-        # since qtile never calls set_qtile() — it sets the attribute directly.
-        from libqtile.backend.macos.inputs import InputManager
-
-        if self.input_manager is None:
-            self.input_manager = InputManager(self.qtile, self)
+        # The InputManager is normally already created by _ensure_input_manager()
+        # during load_config → grab_key, but guard here as a fallback.
+        self._ensure_input_manager()
         self._running = True
         self._poll_handle = self.qtile.call_later(0.01, self._poll_cf)
         # The shutdown hook fires before graceful_shutdown() iterates over
@@ -440,15 +437,25 @@ class Core(base.Core):
         self._lib.mac_free_windows(windows, count)
         return res
 
+    def _ensure_input_manager(self) -> None:
+        """Lazily create the InputManager.
+
+        The manager calls load_config() (which grabs keys) BEFORE
+        setup_listener(), so the InputManager must be created on first use
+        rather than waiting for setup_listener().
+        """
+        if self.input_manager is None:
+            from libqtile.backend.macos.inputs import InputManager
+
+            self.input_manager = InputManager(self.qtile, self)
+
     def grab_key(self, key: config.Key | config.KeyChord) -> tuple[int, int]:
-        if not self.input_manager:
-            return 0, 0
-        return self.input_manager.grab_key(key)
+        self._ensure_input_manager()
+        return self.input_manager.grab_key(key)  # type: ignore[union-attr]
 
     def ungrab_key(self, key: config.Key | config.KeyChord) -> tuple[int, int]:
-        if not self.input_manager:
-            return 0, 0
-        return self.input_manager.ungrab_key(key)
+        self._ensure_input_manager()
+        return self.input_manager.ungrab_key(key)  # type: ignore[union-attr]
 
     def ungrab_keys(self) -> None:
         if self.input_manager:
