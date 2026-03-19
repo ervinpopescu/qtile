@@ -1,6 +1,7 @@
 #include "drawing.h"
 #import <AppKit/NSColor.h>
 #import <AppKit/NSGraphicsContext.h>
+#import <AppKit/NSScreen.h>
 #import <AppKit/NSView.h>
 #import <AppKit/NSWindow.h>
 
@@ -49,7 +50,12 @@ struct mac_internal *mac_internal_new(int x, int y, int width, int height) {
     }
 
     void (^block)(void) = ^{
-        NSRect contentRect = NSMakeRect(x, y, width, height);
+        // Qtile passes CG coordinates (top-left origin, Y-down) but NSWindow
+        // uses AppKit coordinates (bottom-left origin, Y-up).  Convert by
+        // flipping Y relative to the primary screen height.
+        CGFloat screenHeight = [[NSScreen mainScreen] frame].size.height;
+        CGFloat appkitY = screenHeight - y - height;
+        NSRect contentRect = NSMakeRect(x, appkitY, width, height);
         NSWindow *window = [[NSWindow alloc] initWithContentRect:contentRect
                                                        styleMask:NSWindowStyleMaskBorderless
                                                          backing:NSBackingStoreBuffered
@@ -99,7 +105,10 @@ void mac_internal_free(struct mac_internal *internal) {
 void mac_internal_place(struct mac_internal *internal, int x, int y, int width, int height) {
     void (^block)(void) = ^{
         NSWindow *window = (__bridge NSWindow *)internal->win;
-        [window setFrame:NSMakeRect(x, y, width, height) display:YES];
+        // Convert CG (top-left origin) to AppKit (bottom-left origin).
+        CGFloat screenHeight = [[NSScreen mainScreen] frame].size.height;
+        CGFloat appkitY = screenHeight - y - height;
+        [window setFrame:NSMakeRect(x, appkitY, width, height) display:YES];
 
         if (width != internal->width || height != internal->height) {
             // Reallocate buffer for the new dimensions. Use a temporary pointer
