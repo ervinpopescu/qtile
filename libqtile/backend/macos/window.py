@@ -37,6 +37,14 @@ class _Window(BaseWindow):
         self._x, self._y = self.get_position()
         self._width, self._height = self.get_size()
 
+        # Snapshot the window's original geometry so we can restore it when
+        # qtile exits — native windows should return to where they were before
+        # the WM started managing them.
+        self._original_x = self._x
+        self._original_y = self._y
+        self._original_width = self._width
+        self._original_height = self._height
+
     # -------------------------------------------------------------------------
     # Geometry properties — cache backed by native AX calls via mac_window_place
     # -------------------------------------------------------------------------
@@ -80,6 +88,16 @@ class _Window(BaseWindow):
     @property
     def wid(self) -> int:
         return int(self._win.wid)
+
+    def restore_original_geometry(self) -> None:
+        """Move the window back to its pre-qtile position and size."""
+        self._lib.mac_window_place(
+            self._win,
+            self._original_x,
+            self._original_y,
+            self._original_width,
+            self._original_height,
+        )
 
     def hide(self) -> None:
         self._lib.mac_window_set_hidden(self._win, True)

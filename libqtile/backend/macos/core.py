@@ -135,6 +135,16 @@ class Core(base.Core):
         if self.input_manager:
             self.input_manager.ungrab_keys()
         self.ungrab_buttons()
+
+        # Restore every managed window to its original position/size so the
+        # desktop looks the way it did before qtile started.  Unhide first so
+        # windows on inactive groups become visible again.
+        for win in self.windows.values():
+            try:
+                win.unhide()
+                win.restore_original_geometry()
+            except Exception:
+                logger.debug("failed to restore geometry for window %s", win.wid)
         self.windows.clear()
 
         self._lib.mac_observer_stop()
