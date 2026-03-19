@@ -25,8 +25,8 @@
 
     CGImageRef image =
         CGImageCreate(_internal->width, _internal->height, 8, 32, _internal->width * 4, colorSpace,
-                      kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Host, provider, NULL, NO,
-                      kCGRenderingIntentDefault);
+                      kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host, provider, NULL,
+                      NO, kCGRenderingIntentDefault);
 
     CGContextDrawImage(context, CGRectMake(0, 0, _internal->width, _internal->height), image);
 
