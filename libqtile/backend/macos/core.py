@@ -437,10 +437,13 @@ class Core(base.Core):
 
     def grab_button(self, mouse: Mouse) -> int:
         mask = self._translate_mask(mouse.modifiers)
-        if mouse.button.startswith("button"):
-            button_val = int(mouse.button[6:])
+        # mouse.button may be "button1", "Button1", or a bare integer string;
+        # normalise to lowercase before the prefix check.
+        btn = mouse.button.lower()
+        if btn.startswith("button"):
+            button_val = int(btn[6:])
         else:
-            button_val = int(mouse.button)
+            button_val = int(btn)
         self.grabbed_buttons.add((button_val, mask))
         return mask
 
