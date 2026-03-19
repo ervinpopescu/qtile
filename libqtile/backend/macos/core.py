@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import typing
 
-from libqtile import config
+from libqtile import config, hook
 from libqtile.backend import base
 from libqtile.log_utils import logger
 
@@ -24,6 +24,7 @@ class Core(base.Core):
         self._observer_handle = None
         self._poll_handle: typing.Any = None
         self._running = False
+        self._shutting_down = False
         self._ax_trusted: bool | None = None
         self.qtile: Qtile = None  # type: ignore
         self.windows: dict[int, Window] = {}
@@ -59,6 +60,14 @@ class Core(base.Core):
         # Start polling CFRunLoop for AX notifications and EventTap
         self._running = True
         self._poll_handle = self.qtile.call_later(0.01, self._poll_cf)
+        # The shutdown hook fires before graceful_shutdown() iterates over
+        # managed windows and calls win.kill().  Setting the flag here lets
+        # Window.kill() skip mac_window_kill so qtile's exit does not close
+        # users' native applications.
+        hook.subscribe.shutdown(self._on_shutdown)
+
+    def _on_shutdown(self) -> None:
+        self._shutting_down = True
 
     def _poll_cf(self) -> None:
         if not self._running:

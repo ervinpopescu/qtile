@@ -93,6 +93,13 @@ class _Window(BaseWindow):
 
     @expose_command()
     def kill(self) -> None:
+        # graceful_shutdown() calls kill() on every managed window before
+        # qtile exits.  On macOS qtile does not own windows — they are native
+        # applications.  Closing them on WM exit would shut down the user's
+        # apps, which is wrong.  The Core sets _shutting_down via the
+        # shutdown hook so we can skip the kill in that case.
+        if getattr(getattr(self.qtile, "core", None), "_shutting_down", False):
+            return
         self._lib.mac_window_kill(self._win)
 
     def get_wm_class(self) -> list[str] | None:
