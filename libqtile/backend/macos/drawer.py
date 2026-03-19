@@ -66,9 +66,13 @@ class Internal(base.Internal):
         self._width = width
         self._height = height
 
-        # Create native window
-        self._ptr = self._lib.mac_internal_new(x, y, width, height)
-        self._ffi.gc(self._ptr, self._lib.mac_internal_free)
+        # Create native window. ffi.gc() returns a cdata that calls mac_internal_free
+        # when it is garbage-collected; _ptr must hold that object so the destructor
+        # is not invoked prematurely.
+        self._ptr = self._ffi.gc(
+            self._lib.mac_internal_new(x, y, width, height),
+            self._lib.mac_internal_free,
+        )
 
     @property
     def wid(self) -> int:
