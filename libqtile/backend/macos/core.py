@@ -37,8 +37,10 @@ class Core(base.Core):
         self.idle_notifier = IdleNotifier(self)
         self.input_manager: InputManager | None = None
 
-        # macOS renders to native windows via AX; qtile's painter abstraction is unused.
-        self.painter = None
+        # macOS has no desktop background layer (windows are managed by the OS);
+        # provide a no-op painter so the Qtile manager's fill_screen/paint_screen
+        # calls succeed without error.
+        self.painter = _Painter()
 
     @property
     def name(self) -> str:
@@ -514,4 +516,20 @@ class Core(base.Core):
         # ext-workspace protocol.  There is no system-wide API to advertise
         # the current group list; external tools cannot query desktop state
         # on macOS in the same way as on X11/Wayland.
+        pass
+
+
+class _Painter:
+    """No-op painter for the macOS backend.
+
+    On X11/Wayland the painter fills the root window or wlr_output with a
+    solid colour or wallpaper image.  macOS manages its own desktop layer and
+    does not expose an API to paint behind all windows, so both operations are
+    intentionally silent no-ops here.
+    """
+
+    def fill(self, screen: object, background: object) -> None:
+        pass
+
+    def paint(self, screen: object, image_path: str, mode: str | None = None) -> None:
         pass

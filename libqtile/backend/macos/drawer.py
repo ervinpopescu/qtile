@@ -34,13 +34,17 @@ class Drawer(base.Drawer):
         if buf_ptr == self._win._ffi.NULL:  # type: ignore
             return
 
-        # Create an ImageSurface from this buffer
-        # macOS buffer is RGBA (4 bytes per pixel)
+        # cairocffi requires a buffer-protocol object (bytes-like), not a raw
+        # CFFI pointer.  ffi.buffer() wraps the C memory as a Python buffer
+        # without copying, so cairocffi can read and write it directly.
+        buf = self._win._ffi.buffer(buf_ptr, self._win.width * self._win.height * 4)  # type: ignore
+
+        # Create an ImageSurface backed by the C pixel buffer
         surface = cairocffi.ImageSurface(
             cairocffi.FORMAT_ARGB32,
             self._win.width,
             self._win.height,
-            data=buf_ptr,
+            data=buf,
             stride=self._win.width * 4,
         )
 
