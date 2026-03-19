@@ -29,9 +29,9 @@ class _Window(BaseWindow):
         self._ffi = _ffi.ffi
         self._lib = _ffi.lib
 
-        # win_struct_ptr is already retained
-        self._win = win_struct_ptr
-        self._ffi.gc(self._win, self._lib.mac_window_release)
+        # win_struct_ptr is already retained; ffi.gc() must be stored in self._win
+        # so the destructor fires when the Window object is collected, not immediately.
+        self._win = self._ffi.gc(win_struct_ptr, self._lib.mac_window_release)
 
         # Cache geometry; kept in sync by place() and AX move/resize notifications.
         self._x, self._y = self.get_position()
