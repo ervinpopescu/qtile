@@ -28,9 +28,10 @@ def test_unit_core_init(core):
     assert core._poll_handle is None
 
 
-def test_unit_core_set_qtile(core):
+def test_unit_core_setup_listener(core):
     qtile = MagicMock()
-    core.set_qtile(qtile)
+    core.qtile = qtile
+    core.setup_listener()
     assert core.qtile == qtile
     assert core._running is True
     assert core._poll_handle is not None
@@ -39,7 +40,8 @@ def test_unit_core_set_qtile(core):
 
 def test_unit_core_finalize(core):
     qtile = MagicMock()
-    core.set_qtile(qtile)
+    core.qtile = qtile
+    core.setup_listener()
     poll_handle = core._poll_handle
 
     core.finalize()
@@ -83,7 +85,8 @@ def test_unit_core_finalize_cleans_up_input_and_windows(core):
     from libqtile.backend.macos.inputs import InputManager
 
     qtile = MagicMock()
-    core.set_qtile(qtile)
+    core.qtile = qtile
+    core.setup_listener()
     # Simulate grabbed state
     core.input_manager = InputManager(qtile, core)
     core.input_manager.grabbed_keys.add((49, 0))
@@ -134,7 +137,8 @@ def test_event_tap_excludes_right_and_bottom_edge_pixels(core):
     from libqtile.backend import base
 
     qtile = MagicMock()
-    core.set_qtile(qtile)
+    core.qtile = qtile
+    core.setup_listener()
     core.setup_listener()
 
     # Internal window at origin, 100×50
