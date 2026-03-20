@@ -338,6 +338,10 @@ class Window(_Window, base.Window):
         if err != 0:
             return None
         parent_wid = int(parent_win.wid)
+        # mac_window_get_parent returns a +1 retained AXUIElementRef via
+        # AXUIElementCopyAttributeValue.  We only need the wid for the lookup,
+        # so release the ref now to avoid leaking it.
+        self._lib.mac_window_release(parent_win)
         if parent_wid == 0:
             return None
         return self.qtile.windows_map.get(parent_wid)
