@@ -102,6 +102,13 @@ class Core(base.Core):
         return True
 
     def on_config_load(self, initial: bool) -> None:
+        # Re-register the shutdown hook on every config load because
+        # reload_config() calls hook.clear() which removes the previous
+        # subscription.  Without this, graceful_shutdown() would call
+        # Window.kill() without _shutting_down being set, closing the
+        # user's native apps.
+        hook.subscribe.shutdown(self._on_shutdown)
+
         if self.qtile:
             self.idle_notifier.start()
         if initial and self.qtile:
@@ -125,6 +132,11 @@ class Core(base.Core):
         return None
 
     def finalize(self) -> None:
+        # Ensure _shutting_down is set even if we arrive here via an unclean
+        # exit path (e.g. KeyboardInterrupt) that bypassed stop() and the
+        # shutdown hook.
+        self._shutting_down = True
+
         # Stop the AX observer FIRST so no more notifications can mutate
         # self.windows while we iterate it below.
         self._lib.mac_observer_stop()

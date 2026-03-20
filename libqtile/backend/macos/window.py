@@ -304,6 +304,14 @@ class Window(_Window, base.Window):
         self._group = group
 
     @property
+    def skip_taskbar(self) -> bool:
+        return False
+
+    @skip_taskbar.setter
+    def skip_taskbar(self, value: bool) -> None:
+        pass
+
+    @property
     def urgent(self) -> bool:
         return self._urgent
 
