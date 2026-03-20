@@ -125,6 +125,10 @@ class Core(base.Core):
         return None
 
     def finalize(self) -> None:
+        # Stop the AX observer FIRST so no more notifications can mutate
+        # self.windows while we iterate it below.
+        self._lib.mac_observer_stop()
+
         self._running = False
         if self._poll_handle:
             self._poll_handle.cancel()
@@ -137,17 +141,19 @@ class Core(base.Core):
         self.ungrab_buttons()
 
         # Restore every managed window to its original position/size so the
-        # desktop looks the way it did before qtile started.  Unhide first so
-        # windows on inactive groups become visible again.
+        # desktop looks the way it did before qtile started.  Unhide and
+        # restore are independent — a failure in one must not prevent the other.
         for win in self.windows.values():
             try:
                 win.unhide()
+            except Exception:
+                logger.debug("failed to unhide window %s", win.wid)
+            try:
                 win.restore_original_geometry()
             except Exception:
                 logger.debug("failed to restore geometry for window %s", win.wid)
         self.windows.clear()
 
-        self._lib.mac_observer_stop()
         self._lib.mac_event_tap_stop()
         self.qtile = None  # type: ignore
 
@@ -304,6 +310,8 @@ class Core(base.Core):
 
             @self._ffi.callback("ax_observer_cb")
             def _observer_callback(win_ptr, notification_ptr, userdata):
+                if self._shutting_down:
+                    return
                 notification = self._ffi.string(notification_ptr).decode()
                 from libqtile.backend.macos.window import Window
 
@@ -316,16 +324,23 @@ class Core(base.Core):
                 qtile = getattr(self, "qtile", None)
                 if qtile:
                     if notification == "AXWindowCreated":
+                        # Retain the AXUIElementRef NOW while the observer's
+                        # borrowed reference is still valid.  The async closure
+                        # runs later, after the callback returns, by which time
+                        # the system may have released the borrowed ref.
+                        w_struct = self._ffi.new("struct mac_window *")
+                        w_struct.ptr = win_ptr
+                        w_struct.wid = wid
+                        self._lib.mac_window_retain(w_struct)
 
                         def manage_new():
                             if wid not in self.windows:
-                                w_struct = self._ffi.new("struct mac_window *")
-                                w_struct.ptr = win_ptr
-                                w_struct.wid = wid
-                                self._lib.mac_window_retain(w_struct)
                                 win = Window(qtile, w_struct)
                                 self.windows[wid] = win
                                 qtile.manage(win)
+                            else:
+                                # Already managed — drop the extra retain.
+                                self._lib.mac_window_release(w_struct)
 
                         qtile.call_soon_threadsafe(manage_new)
                     elif notification == "AXUIElementDestroyed":
