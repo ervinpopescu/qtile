@@ -66,6 +66,11 @@ def find_sockfile(display: str | None = None):
     if os.path.exists(sockfile):
         return sockfile
 
+    # macOS backend uses "macOS" as its display name.
+    sockfile = os.path.join(cache_directory, SOCKBASE % "macOS")
+    if os.path.exists(sockfile):
+        return sockfile
+
     raise IPCError("Could not find socket file.")
 
 
