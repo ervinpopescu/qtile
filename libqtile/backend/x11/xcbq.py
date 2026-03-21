@@ -439,6 +439,27 @@ class RandR:
         self.conn = conn
 
     def query_crtcs(self, root: int) -> list[Output]:
+        # Prefer RANDR 1.5 monitors when multiple non-automatic monitors are
+        # defined (e.g. via ``xrandr --setmonitor``).  Modern nested X servers
+        # such as Xephyr don't expose multiple CRTCs for multi-head setups but
+        # *do* support RANDR 1.5 logical monitors.
+        try:
+            monitors_reply = self.ext.GetMonitors(root, True).reply()
+            user_monitors = [m for m in monitors_reply.monitors if not m.automatic]
+            if len(user_monitors) > 1:
+                return [
+                    Output(
+                        None,
+                        None,
+                        None,
+                        None,
+                        ScreenRect(m.x, m.y, m.width, m.height),
+                    )
+                    for m in user_monitors
+                ]
+        except Exception:
+            pass
+
         infos: list[Output] = []
         primary = self.ext.GetOutputPrimary(root).reply().output
         for output in self.ext.GetScreenResources(root).reply().outputs:

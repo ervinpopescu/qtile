@@ -33,8 +33,8 @@ def can_connect_x11(disp=":0", *, ok=None):
 
 
 @contextlib.contextmanager
-def xvfb():
-    with xcffib.testing.XvfbTest():
+def xvfb(width=WIDTH, height=HEIGHT):
+    with xcffib.testing.XvfbTest(width=width, height=height):
         display = os.environ["DISPLAY"]
         if not can_connect_x11(display):
             raise OSError("Xvfb did not come up")
@@ -125,29 +125,19 @@ class Xephyr:
         self.display = f":{display}"
         self.xephyr_display = self.display
 
-        # build up arguments
-        args = [
-            "Xephyr",
-            "-name",
-            "qtile_test",
-            self.xephyr_display,
-            "-ac",
-            "-screen",
-            f"{WIDTH}x{HEIGHT}",
-        ]
         if self.outputs == 2:
-            args.extend(
-                [
-                    "-origin",
-                    f"{self.xoffset},0",
-                    "-screen",
-                    f"{SECOND_WIDTH}x{SECOND_HEIGHT}",
-                ]
-            )
-            args.extend(["+xinerama"])
-            args.extend(["-extension", "RANDR"])
-
-        start_x11_and_poll_connection(args, self.xephyr_display)
+            self._start_xephyr_dual()
+        else:
+            args = [
+                "Xephyr",
+                "-name",
+                "qtile_test",
+                self.xephyr_display,
+                "-ac",
+                "-screen",
+                f"{WIDTH}x{HEIGHT}",
+            ]
+            self.proc = start_x11_and_poll_connection(args, self.xephyr_display)
 
         if self.xtrace:
             # because we run Xephyr without auth and xtrace requires auth, we
@@ -168,6 +158,90 @@ class Xephyr:
             ]
             start_x11_and_poll_connection(args, self.xtrace_display)
 
+    def _start_xephyr_dual(self):
+        """Start Xephyr for dual-monitor tests.
+
+        Modern Xephyr (>= ~21.1.15) no longer exposes multiple xinerama
+        screens when started with several ``-screen`` arguments; instead,
+        use a single large framebuffer and configure two logical monitors via
+        ``xrandr --setmonitor`` (RANDR 1.5).
+
+        Older Xephyr (e.g. 21.1.12 on Ubuntu 24.04) ignores ``--setmonitor``,
+        but does expose two xinerama pseudo-screens when given multiple
+        ``-screen`` args + ``+xinerama``.  Fall back to that approach when
+        ``--setmonitor`` does not take effect.
+        """
+        total_width = WIDTH + SECOND_WIDTH
+        # -- Attempt 1: single large framebuffer + RANDR 1.5 setmonitor ------
+        args = [
+            "Xephyr",
+            "-name",
+            "qtile_test",
+            self.xephyr_display,
+            "-ac",
+            "-screen",
+            f"{total_width}x{max(HEIGHT, SECOND_HEIGHT)}",
+        ]
+        self.proc = start_x11_and_poll_connection(args, self.xephyr_display)
+
+        try:
+            subprocess.run(
+                [
+                    "xrandr",
+                    "--display",
+                    self.xephyr_display,
+                    "--setmonitor",
+                    "Monitor0",
+                    f"{WIDTH}/100x{HEIGHT}/100+0+0",
+                    "none",
+                ],
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "xrandr",
+                    "--display",
+                    self.xephyr_display,
+                    "--setmonitor",
+                    "Monitor1",
+                    f"{SECOND_WIDTH}/100x{SECOND_HEIGHT}/100+{WIDTH}+0",
+                    "none",
+                ],
+                check=True,
+            )
+            result = subprocess.run(
+                ["xrandr", "--display", self.xephyr_display, "--listmonitors"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            if "Monitor0" in result.stdout and "Monitor1" in result.stdout:
+                return  # RANDR 1.5 approach succeeded
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+        # -- Attempt 2: multiple -screen args + xinerama (older Xephyr) ------
+        # Kill the single-framebuffer Xephyr; reuse the same display slot.
+        if self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait()
+
+        args = [
+            "Xephyr",
+            "-name",
+            "qtile_test",
+            self.xephyr_display,
+            "-ac",
+            "-screen",
+            f"{WIDTH}x{HEIGHT}",
+            "-screen",
+            f"{SECOND_WIDTH}x{SECOND_HEIGHT}",
+            "+xinerama",
+            "-extension",
+            "RANDR",
+        ]
+        self.proc = start_x11_and_poll_connection(args, self.xephyr_display)
+
     def stop_xephyr(self):
         stop_x11(self.proc, self.xephyr_display, self.xephyr_display_file)
         if self.xtrace:
@@ -177,7 +251,13 @@ class Xephyr:
 @contextlib.contextmanager
 def x11_environment(outputs, **kwargs):
     """This backend needs a Xephyr instance running"""
-    with xvfb():
+    if outputs == 2:
+        fb_width = WIDTH + SECOND_WIDTH
+        fb_height = max(HEIGHT, SECOND_HEIGHT)
+    else:
+        fb_width = WIDTH
+        fb_height = HEIGHT
+    with xvfb(width=fb_width, height=fb_height):
         with Xephyr(outputs, **kwargs) as x:
             yield x
 
