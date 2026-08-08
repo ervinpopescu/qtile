@@ -1,51 +1,113 @@
 name: ci
 
 on:
-    push:
-    pull_request:
+  push:
+    branches: [master, main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pr_welcome.yml"
+  pull_request:
+    branches: [master, main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pr_welcome.yml"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-    tests:
-        runs-on: ubuntu-24.04
-        name: "python ${{ matrix.python-version }} on ${{ matrix.backend }}"
-        strategy:
-            matrix:
-                # If you change one of these, be sure to update:
-                # - /pyproject.toml:[tool.mypy]
-                # If adding new python versions, consider also updating
-                # python version in .readthedocs.yaml
-                # TODO: Add back pypy here and in release.yml once:
-                # https://github.com/pypy/pypy/issues/4956 is resolved
-                python-version: ['3.12', '3.13', '3.14']
-                backend: ['x11', 'wayland']
-        steps:
-            - uses: actions/checkout@v6
-            - name: Build Docker image
-              run: |
-                docker build -t qtile-ci .
-            - name: Run tests in container
-              run: |
-                mkdir coredumps
-                sudo sysctl -w kernel.core_pattern=/workspace/coredumps/core-%e.%p.%t
-                make ci-check
-              env:
-                QTILE_CI_PYTHON: ${{ matrix.python-version }}
-                QTILE_CI_BACKEND: ${{ matrix.backend }}
-                GITHUB_ACTIONS: true
-                GITHUB_REF: ${{ github.ref }}
-                GITHUB_SHA: ${{ github.sha }}
-                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                COVERALLS_FLAG_NAME: ${{ format('{0}-{1}', matrix.python-version, matrix.backend) }}
-                COVERALLS_PARALLEL: true
-                COVERALLS_SERVICE_JOB_ID: ${{ github.run_id }}
+  build-docker:
+    name: Build & Cache Docker Image
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
 
-    coverage:
-        name: Finalize Coverage
-        needs: tests
-        runs-on: ubuntu-24.04
-        steps:
-            - name: Coveralls Finished
-              uses: coverallsapp/github-action@main
-              with:
-                github-token: ${{ secrets.GITHUB_TOKEN }}
-                parallel-finished: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image with GHA cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: qtile-ci:latest
+          cache-from: type=gha,scope=docker-qtile-ci
+          cache-to: type=gha,mode=max,scope=docker-qtile-ci
+
+  tests:
+    name: "python ${{ matrix.python-version }} on ${{ matrix.backend }}"
+    needs: build-docker
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # If you change one of these, be sure to update:
+        # - /pyproject.toml:[tool.mypy]
+        # If adding new python versions, consider also updating
+        # python version in .readthedocs.yaml
+        # TODO: Add back pypy here and in release.yml once:
+        # https://github.com/pypy/pypy/issues/4956 is resolved
+        python-version: ["3.12", "3.13", "3.14"]
+        backend: ["x11", "wayland"]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Load Docker image from cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: qtile-ci:latest
+          cache-from: type=gha,scope=docker-qtile-ci
+
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: .cache/uv
+          key: uv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            uv-${{ runner.os }}-${{ matrix.python-version }}-
+            uv-${{ runner.os }}-
+
+      - name: Run tests in container
+        run: |
+          mkdir -p coredumps .cache/uv
+          sudo sysctl -w kernel.core_pattern=/workspace/coredumps/core-%e.%p.%t
+          make ci-check
+        env:
+          QTILE_CI_PYTHON: ${{ matrix.python-version }}
+          QTILE_CI_BACKEND: ${{ matrix.backend }}
+          GITHUB_ACTIONS: true
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COVERALLS_FLAG_NAME: ${{ format('{0}-{1}', matrix.python-version, matrix.backend) }}
+          COVERALLS_PARALLEL: true
+          COVERALLS_SERVICE_JOB_ID: ${{ github.run_id }}
+
+  coverage:
+    name: Finalize Coverage
+    needs: tests
+    if: ${{ always() && !cancelled() && needs.tests.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Coveralls Finished
+        uses: coverallsapp/github-action@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true

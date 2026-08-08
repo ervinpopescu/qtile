@@ -2,7 +2,27 @@ name: Nix Flake Check
 
 on:
   push:
+    branches: [master, main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pr_welcome.yml"
   pull_request:
+    branches: [master, main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pr_welcome.yml"
+
+concurrency:
+  group: flake-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   flake-check:
@@ -13,6 +33,9 @@ jobs:
 
       - name: Install Nix
         uses: cachix/install-nix-action@v27
+
+      - name: Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@v8
 
       - name: Run nix flake check
         run: nix flake check --print-build-logs

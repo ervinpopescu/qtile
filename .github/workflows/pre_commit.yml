@@ -1,16 +1,39 @@
 name: Run pre-commit
 
 on:
-    push:
-    pull_request:
+  push:
+    branches: [master, main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pr_welcome.yml"
+  pull_request:
+    branches: [master, main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/pr_welcome.yml"
+
+concurrency:
+  group: precommit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-    check:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v6
-            - name: Install dependencies
-              run: |
-                sudo apt update
-                sudo apt install --no-install-recommends libxkbcommon-dev
-            - uses: pre-commit/action@v3.0.1
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install --no-install-recommends -y libxkbcommon-dev
+      - uses: pre-commit/action@v3.0.1

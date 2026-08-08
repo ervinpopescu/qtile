@@ -1,10 +1,10 @@
 FROM fedora:44
 
-RUN dnf install -y \
+RUN dnf install -y --setopt=install_weak_deps=False \
     cairo-devel \
     cairo-gobject-devel \
     dbus-x11 \
-    gcc git make\
+    gcc git make \
     gdb \
     gobject-introspection \
     gtk3 \
@@ -27,9 +27,13 @@ RUN dnf install -y \
     xorg-x11-server-Xwayland \
     xterm \
     zstd \
-    && dnf clean all
+    && dnf clean all \
+    && rm -rf /var/cache/dnf /var/cache/libdnf5 /tmp/*
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+ENV PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy
 
 WORKDIR /workspace
 
