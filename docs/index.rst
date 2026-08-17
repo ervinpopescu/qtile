@@ -62,6 +62,7 @@ questions, you can find support in the following places:
     :hidden:
 
     manual/hacking
+    macOS backend architecture <manual/macos_backend>
     manual/contributing
 
 .. toctree::
