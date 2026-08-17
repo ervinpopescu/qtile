@@ -102,6 +102,13 @@ class Core(base.Core):
         return True
 
     def on_config_load(self, initial: bool) -> None:
+        # Re-register the shutdown hook on every config load because
+        # reload_config() calls hook.clear() which removes the previous
+        # subscription.  Without this, graceful_shutdown() would call
+        # Window.kill() without _shutting_down being set, closing the
+        # user's native apps.
+        hook.subscribe.shutdown(self._on_shutdown)
+
         if self.qtile:
             self.idle_notifier.start()
         if initial and self.qtile:
@@ -125,6 +132,15 @@ class Core(base.Core):
         return None
 
     def finalize(self) -> None:
+        # Ensure _shutting_down is set even if we arrive here via an unclean
+        # exit path (e.g. KeyboardInterrupt) that bypassed stop() and the
+        # shutdown hook.
+        self._shutting_down = True
+
+        # Stop the AX observer FIRST so no more notifications can mutate
+        # self.windows while we iterate it below.
+        self._lib.mac_observer_stop()
+
         self._running = False
         if self._poll_handle:
             self._poll_handle.cancel()
@@ -137,17 +153,19 @@ class Core(base.Core):
         self.ungrab_buttons()
 
         # Restore every managed window to its original position/size so the
-        # desktop looks the way it did before qtile started.  Unhide first so
-        # windows on inactive groups become visible again.
+        # desktop looks the way it did before qtile started.  Unhide and
+        # restore are independent — a failure in one must not prevent the other.
         for win in self.windows.values():
             try:
                 win.unhide()
+            except Exception:
+                logger.debug("failed to unhide window %s", win.wid)
+            try:
                 win.restore_original_geometry()
             except Exception:
                 logger.debug("failed to restore geometry for window %s", win.wid)
         self.windows.clear()
 
-        self._lib.mac_observer_stop()
         self._lib.mac_event_tap_stop()
         self.qtile = None  # type: ignore
 
@@ -174,12 +192,9 @@ class Core(base.Core):
 
     def setup_listener(self) -> None:
         # setup_listener is called by the manager after core.qtile is assigned.
-        # Initialise the input manager, CFRunLoop polling, and shutdown hook here
-        # since qtile never calls set_qtile() — it sets the attribute directly.
-        from libqtile.backend.macos.inputs import InputManager
-
-        if self.input_manager is None:
-            self.input_manager = InputManager(self.qtile, self)
+        # The InputManager is normally already created by _ensure_input_manager()
+        # during load_config → grab_key, but guard here as a fallback.
+        self._ensure_input_manager()
         self._running = True
         self._poll_handle = self.qtile.call_later(0.01, self._poll_cf)
         # The shutdown hook fires before graceful_shutdown() iterates over
@@ -307,6 +322,8 @@ class Core(base.Core):
 
             @self._ffi.callback("ax_observer_cb")
             def _observer_callback(win_ptr, notification_ptr, userdata):
+                if self._shutting_down:
+                    return
                 notification = self._ffi.string(notification_ptr).decode()
                 from libqtile.backend.macos.window import Window
 
@@ -319,16 +336,23 @@ class Core(base.Core):
                 qtile = getattr(self, "qtile", None)
                 if qtile:
                     if notification == "AXWindowCreated":
+                        # Retain the AXUIElementRef NOW while the observer's
+                        # borrowed reference is still valid.  The async closure
+                        # runs later, after the callback returns, by which time
+                        # the system may have released the borrowed ref.
+                        w_struct = self._ffi.new("struct mac_window *")
+                        w_struct.ptr = win_ptr
+                        w_struct.wid = wid
+                        self._lib.mac_window_retain(w_struct)
 
                         def manage_new():
                             if wid not in self.windows:
-                                w_struct = self._ffi.new("struct mac_window *")
-                                w_struct.ptr = win_ptr
-                                w_struct.wid = wid
-                                self._lib.mac_window_retain(w_struct)
                                 win = Window(qtile, w_struct)
                                 self.windows[wid] = win
                                 qtile.manage(win)
+                            else:
+                                # Already managed — drop the extra retain.
+                                self._lib.mac_window_release(w_struct)
 
                         qtile.call_soon_threadsafe(manage_new)
                     elif notification == "AXUIElementDestroyed":
@@ -440,15 +464,25 @@ class Core(base.Core):
         self._lib.mac_free_windows(windows, count)
         return res
 
+    def _ensure_input_manager(self) -> None:
+        """Lazily create the InputManager.
+
+        The manager calls load_config() (which grabs keys) BEFORE
+        setup_listener(), so the InputManager must be created on first use
+        rather than waiting for setup_listener().
+        """
+        if self.input_manager is None:
+            from libqtile.backend.macos.inputs import InputManager
+
+            self.input_manager = InputManager(self.qtile, self)
+
     def grab_key(self, key: config.Key | config.KeyChord) -> tuple[int, int]:
-        if not self.input_manager:
-            return 0, 0
-        return self.input_manager.grab_key(key)
+        self._ensure_input_manager()
+        return self.input_manager.grab_key(key)  # type: ignore[union-attr]
 
     def ungrab_key(self, key: config.Key | config.KeyChord) -> tuple[int, int]:
-        if not self.input_manager:
-            return 0, 0
-        return self.input_manager.ungrab_key(key)
+        self._ensure_input_manager()
+        return self.input_manager.ungrab_key(key)  # type: ignore[union-attr]
 
     def ungrab_keys(self) -> None:
         if self.input_manager:

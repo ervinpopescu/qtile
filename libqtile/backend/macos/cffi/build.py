@@ -138,7 +138,15 @@ def build_objects(debug: bool = False) -> None:
             extra_preargs.extend(["-g3", "-Og"])
         else:
             extra_preargs.extend(["-O2"])
-        extra_preargs.extend(["-fPIC", "-Wall", "-Wextra"])
+        extra_preargs.extend(
+            [
+                "-fPIC",
+                "-Wall",
+                "-Wextra",
+                "-Wno-unused-parameter",
+                "-Wno-unused-command-line-argument",
+            ]
+        )
 
         cmd.shlib_compiler.compile(
             [os.path.basename(path) for path in SOURCE_FILES],

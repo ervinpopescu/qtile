@@ -55,6 +55,12 @@ int mac_event_tap_start(event_tap_cb callback, void *userdata) {
     }
 
     runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0);
+    if (!runLoopSource) {
+        NSLog(@"Failed to create run loop source for event tap");
+        CFRelease(eventTap);
+        eventTap = NULL;
+        return 1;
+    }
     CGEventTapEnable(eventTap, true);
 
     // Add the source and run the loop on the same background thread so that

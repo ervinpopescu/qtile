@@ -1,5 +1,6 @@
 #include "display.h"
 #import <AppKit/NSApplication.h>
+#import <AppKit/NSScreen.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <Foundation/Foundation.h>
 #import <IOKit/pwr_mgt/IOPMLib.h>
@@ -44,23 +45,39 @@ int mac_get_outputs(struct mac_output **outputs, size_t *count) {
     }
 
     for (uint32_t i = 0; i < displayCount; i++) {
-        // CGDisplayBounds returns coordinates in the macOS global screen
-        // coordinate space, where the primary display's top-left is (0, 0).
-        // Secondary displays positioned above or to the left of the primary
-        // may have negative X or Y origins (macOS uses a flipped Y-axis).
-        // Callers must handle negative values when computing window positions
-        // or layout geometry.
+        // We need the usable area excluding the macOS system menu bar (and Dock,
+        // if visible).  NSScreen.visibleFrame gives us this in AppKit coordinates
+        // (origin at bottom-left, Y-up), so we convert to CG coordinates
+        // (origin at top-left, Y-down) which qtile uses internally.
         //
-        // CGDisplayBounds returns logical points, not physical pixels.  On
-        // Retina/HiDPI displays the returned dimensions are half the physical
-        // resolution (e.g. 1440x900 for a 2880x1800 panel).  Use
-        // CGDisplayPixelsWide / CGDisplayPixelsHigh if physical pixel counts
-        // are needed instead.
-        CGRect rect = CGDisplayBounds(displays[i]);
-        (*outputs)[i].x = (int)rect.origin.x;
-        (*outputs)[i].y = (int)rect.origin.y;
-        (*outputs)[i].width = (int)rect.size.width;
-        (*outputs)[i].height = (int)rect.size.height;
+        // Fall back to CGDisplayBounds if no matching NSScreen is found.
+        CGRect fullBounds = CGDisplayBounds(displays[i]);
+        CGRect usable = fullBounds;
+
+        // Match CGDirectDisplayID to NSScreen via CGDirectDisplayID.
+        for (NSScreen *screen in [NSScreen screens]) {
+            NSDictionary *desc = [screen deviceDescription];
+            CGDirectDisplayID screenID = [[desc objectForKey:@"NSScreenNumber"] unsignedIntValue];
+            if (screenID == displays[i]) {
+                NSRect visible = [screen visibleFrame];
+                NSRect full = [screen frame];
+                // Convert AppKit coords (bottom-left origin) to CG coords
+                // (top-left origin).  The CG Y of the visible area's top edge
+                // equals fullBounds.origin.y + (full.height - (visible.origin.y
+                // - full.origin.y + visible.height)).
+                double cgY =
+                    fullBounds.origin.y +
+                    (full.size.height - (visible.origin.y - full.origin.y + visible.size.height));
+                usable = CGRectMake(fullBounds.origin.x + (visible.origin.x - full.origin.x), cgY,
+                                    visible.size.width, visible.size.height);
+                break;
+            }
+        }
+
+        (*outputs)[i].x = (int)usable.origin.x;
+        (*outputs)[i].y = (int)usable.origin.y;
+        (*outputs)[i].width = (int)usable.size.width;
+        (*outputs)[i].height = (int)usable.size.height;
 
         // Use CGDisplayUnitNumber to produce a stable, hardware-tied name
         // that survives display reconnections and enumeration-order changes,

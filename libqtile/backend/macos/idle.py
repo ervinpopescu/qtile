@@ -38,6 +38,12 @@ class IdleNotifier(BaseIdleNotifier):
         while True:
             idle_time = self.core._lib.mac_get_idle_time()
 
+            # CGEventSourceSecondsSinceLastEventType returns -1.0 on error;
+            # skip this poll cycle rather than triggering false idle events.
+            if idle_time < 0:
+                await asyncio.sleep(1)
+                continue
+
             if idle_time < self._last_idle_time:
                 # User is active again
                 if self._fired:
